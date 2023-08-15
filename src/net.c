@@ -124,7 +124,7 @@ struct mg_connection *mg_alloc_conn(struct mg_mgr *mgr) {
       (struct mg_connection *) calloc(1, sizeof(*c) + mgr->extraconnsize);
   if (c != NULL) {
     c->mgr = mgr;
-    c->send.align = c->recv.align = MG_IO_SIZE;
+    c->send.align = c->recv.align = c->raw.align = MG_IO_SIZE;
     c->id = ++mgr->nextid;
   }
   return c;
@@ -143,6 +143,7 @@ void mg_close_conn(struct mg_connection *c) {
   mg_tls_free(c);
   mg_iobuf_free(&c->recv);
   mg_iobuf_free(&c->send);
+  mg_iobuf_free(&c->raw);
   memset(c, 0, sizeof(*c));
   free(c);
 }
@@ -188,7 +189,7 @@ struct mg_connection *mg_listen(struct mg_mgr *mgr, const char *url,
     c->fn = fn;
     c->fn_data = fn_data;
     mg_call(c, MG_EV_OPEN, NULL);
-    if (mg_url_is_ssl(url)) c->is_tls = 1; // Accepted connection must
+    if (mg_url_is_ssl(url)) c->is_tls = 1;  // Accepted connection must
     MG_DEBUG(("%lu %p %s", c->id, c->fd, url));
   }
   return c;
@@ -216,6 +217,14 @@ struct mg_timer *mg_timer_add(struct mg_mgr *mgr, uint64_t milliseconds,
     t->id = mgr->timerid++;
   }
   return t;
+}
+
+long mg_io_recv(struct mg_connection *c, void *buf, size_t len) {
+  if (c->raw.len == 0) return MG_IO_WAIT;
+  if (len > c->raw.len) len = c->raw.len;
+  memcpy(buf, c->raw.buf, len);
+  mg_iobuf_del(&c->raw, 0, len);
+  return (long) len;
 }
 
 void mg_mgr_free(struct mg_mgr *mgr) {
