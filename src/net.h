@@ -54,6 +54,8 @@ struct mg_connection {
   void *pfn_data;              // Protocol-specific function parameter
   char data[MG_DATA_SIZE];     // Arbitrary connection data
   void *tls;                   // TLS specific data
+  uint16_t mtu;                // MTU for this connection
+#define MTU_DEFAULT_VALUE 1500
   unsigned is_listening : 1;   // Listening connection
   unsigned is_client : 1;      // Outbound (client) connection
   unsigned is_accepted : 1;    // Accepted (server) connection

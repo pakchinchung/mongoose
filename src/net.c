@@ -126,6 +126,7 @@ struct mg_connection *mg_alloc_conn(struct mg_mgr *mgr) {
     c->mgr = mgr;
     c->send.align = c->recv.align = MG_IO_SIZE;
     c->id = ++mgr->nextid;
+    c->mtu = MTU_DEFAULT_VALUE;
   }
   return c;
 }

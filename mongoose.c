@@ -3694,6 +3694,7 @@ struct mg_connection *mg_alloc_conn(struct mg_mgr *mgr) {
     c->mgr = mgr;
     c->send.align = c->recv.align = MG_IO_SIZE;
     c->id = ++mgr->nextid;
+    c->mtu = MTU_DEFAULT_VALUE;
   }
   return c;
 }
@@ -4383,17 +4384,19 @@ long mg_io_send(struct mg_connection *c, const void *buf, size_t len) {
   struct mg_tcpip_if *ifp = (struct mg_tcpip_if *) c->mgr->priv;
   struct connstate *s = (struct connstate *) (c + 1);
   uint32_t rem_ip;
+  size_t eth_h_len = 14, ip_max_h_len = 24, tcp_max_h_len = 60, udp_h_len = 8;
+  size_t max_headers_len = eth_h_len + ip_max_h_len +
+                          (c->is_udp ? udp_h_len : tcp_max_h_len);
   memcpy(&rem_ip, c->rem.ip, sizeof(uint32_t));
+  if (len + max_headers_len > ifp->tx.len) {
+    len = ifp->tx.len - max_headers_len;
+  }
+  if (len + max_headers_len - eth_h_len > c->mtu) {
+    len = c->mtu - max_headers_len + eth_h_len;
+  }
   if (c->is_udp) {
-    size_t max_headers_len = 14 + 24 /* max IP */ + 8 /* UDP */;
-    if (len + max_headers_len > ifp->tx.len) {
-      len = ifp->tx.len - max_headers_len;
-    }
     tx_udp(ifp, s->mac, ifp->ip, c->loc.port, rem_ip, c->rem.port, buf, len);
   } else {
-    size_t max_headers_len = 14 + 24 /* max IP */ + 60 /* max TCP */;
-    if (len + max_headers_len > ifp->tx.len)
-      len = ifp->tx.len - max_headers_len;
     if (tx_tcp(ifp, s->mac, rem_ip, TH_PUSH | TH_ACK, c->loc.port, c->rem.port,
                mg_htonl(s->seq), mg_htonl(s->ack), buf, len) > 0) {
       s->seq += (uint32_t) len;
@@ -4849,11 +4852,13 @@ bool mg_open_listener(struct mg_connection *c, const char *url) {
 }
 
 static void write_conn(struct mg_connection *c) {
-  long len = c->is_tls ? mg_tls_send(c, c->send.buf, c->send.len)
-                       : mg_io_send(c, c->send.buf, c->send.len);
-  if (len > 0) {
-    mg_iobuf_del(&c->send, 0, (size_t) len);
-    mg_call(c, MG_EV_WRITE, &len);
+  while (c->send.len) {
+    long len = c->is_tls ? mg_tls_send(c, c->send.buf, c->send.len)
+                      : mg_io_send(c, c->send.buf, c->send.len);
+    if (len > 0) {
+      mg_iobuf_del(&c->send, 0, (size_t) len);
+      mg_call(c, MG_EV_WRITE, &len);
+    }
   }
 }
 
